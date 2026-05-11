@@ -84,6 +84,9 @@ function asAnthropicContent(content) {
 function normalizeAnthropicModel(model) {
   const key = String(model || '').trim().toLowerCase();
   const aliases = {
+    'opus 4.6': 'claude-opus-4-6',
+    'claude opus 4.6': 'claude-opus-4-6',
+    'claude-opus-4.6': 'claude-opus-4-6',
     'sonnet 4.5': 'claude-sonnet-4-5-20250929',
     'claude sonnet 4.5': 'claude-sonnet-4-5-20250929',
     'claude-sonnet-4.5': 'claude-sonnet-4-5-20250929',
