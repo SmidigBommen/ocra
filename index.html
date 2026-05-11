@@ -186,7 +186,7 @@
     font-size: 12px;
     color: var(--muted);
   }
-  .settings input, .settings textarea {
+  .settings input, .settings textarea, .settings select {
     background: var(--panel);
     border: 1px solid var(--border);
     color: var(--text);
@@ -310,7 +310,13 @@
       <details>
         <summary style="cursor:pointer; color:var(--muted); font-size:12px;">Settings</summary>
         <div class="settings" style="margin-top:10px;">
-          <label for="endpoint">Endpoint</label>
+          <label for="provider">Provider</label>
+          <select id="provider">
+            <option value="lmstudio">Local — LM Studio / OpenAI-compatible</option>
+            <option value="openai">External — OpenAI GPT</option>
+            <option value="anthropic">External — Anthropic Claude</option>
+          </select>
+          <label for="endpoint">Local endpoint</label>
           <input id="endpoint" value="http://localhost:1234/v1">
           <label for="model">Model</label>
           <input id="model" value="google/gemma-4-26b-a4b">
@@ -342,7 +348,7 @@ const els = {
   previewName: $('previewName'), previewSize: $('previewSize'),
   analyze: $('analyze'), clear: $('clear'),
   description: $('description'), text: $('text'),
-  endpoint: $('endpoint'), model: $('model'),
+  provider: $('provider'), endpoint: $('endpoint'), model: $('model'),
   endpointLabel: $('endpointLabel'),
   status: $('status'), statusText: $('statusText'),
   refThumb: $('refThumb'), refFile: $('refFile'),
@@ -357,6 +363,7 @@ let currentDataUrl = null;
 let referenceDataUrl = null;
 
 const STORE = {
+  provider: 'ocr.provider',
   endpoint: 'ocr.endpoint',
   model: 'ocr.model',
   sysPrompt: 'ocr.sysPrompt',
@@ -391,22 +398,39 @@ function setStatus(state, text) {
   els.statusText.textContent = text;
 }
 
+function providerName() {
+  return els.provider.options[els.provider.selectedIndex]?.textContent || els.provider.value;
+}
+
 function syncEndpointLabel() {
-  els.endpointLabel.textContent = els.endpoint.value + '  ·  ' + els.model.value;
+  const target = els.provider.value === 'lmstudio' ? els.endpoint.value : 'local proxy';
+  els.endpointLabel.textContent = providerName() + '  ·  ' + target + '  ·  ' + els.model.value;
 }
 
 async function checkEndpoint() {
   setStatus('', 'checking…');
   try {
-    const r = await fetch(els.endpoint.value.replace(/\/$/, '') + '/models');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (els.provider.value === 'lmstudio') {
+      const r = await fetch(els.endpoint.value.replace(/\/$/, '') + '/models');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const ids = (data.data || []).map(m => m.id);
+      const present = ids.includes(els.model.value);
+      setStatus(present ? 'ok' : 'err',
+        present ? 'connected · model loaded' : 'connected · model NOT in list (' + ids.length + ' available)');
+      return;
+    }
+
+    const r = await fetch('/api/health');
+    if (!r.ok) throw new Error('proxy HTTP ' + r.status);
     const data = await r.json();
-    const ids = (data.data || []).map(m => m.id);
-    const present = ids.includes(els.model.value);
-    setStatus(present ? 'ok' : 'err',
-      present ? 'connected · model loaded' : 'connected · model NOT in list (' + ids.length + ' available)');
+    if (els.provider.value === 'openai') {
+      setStatus(data.openai ? 'ok' : 'err', data.openai ? 'proxy ready · OpenAI key found' : 'proxy ready · missing OPENAI_API_KEY');
+    } else {
+      setStatus(data.anthropic ? 'ok' : 'err', data.anthropic ? 'proxy ready · Anthropic key found' : 'proxy ready · missing ANTHROPIC_API_KEY');
+    }
   } catch (e) {
-    setStatus('err', 'cannot reach LM Studio (' + e.message + ')');
+    setStatus('err', els.provider.value === 'lmstudio' ? 'cannot reach LM Studio (' + e.message + ')' : 'cannot reach local proxy (' + e.message + ')');
   }
 }
 
@@ -523,10 +547,13 @@ async function analyze() {
   messages.push({ role: 'user', content: userContent });
 
   const body = { model: els.model.value, stream: true, messages };
+  const url = els.provider.value === 'lmstudio'
+    ? els.endpoint.value.replace(/\/$/, '') + '/chat/completions'
+    : '/api/' + els.provider.value + '/chat/completions';
 
   let acc = '';
   try {
-    const res = await fetch(els.endpoint.value.replace(/\/$/, '') + '/chat/completions', {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -646,8 +673,10 @@ function persist(key, el) {
   el.addEventListener('change', () => localStorage.setItem(key, el.value));
   el.addEventListener('input', () => localStorage.setItem(key, el.value));
 }
+els.provider.addEventListener('change', () => { syncEndpointLabel(); checkEndpoint(); });
 els.endpoint.addEventListener('change', () => { syncEndpointLabel(); checkEndpoint(); });
 els.model.addEventListener('change', () => { syncEndpointLabel(); checkEndpoint(); });
+persist(STORE.provider, els.provider);
 persist(STORE.endpoint, els.endpoint);
 persist(STORE.model, els.model);
 persist(STORE.sysPrompt, els.sysPrompt);
@@ -658,6 +687,8 @@ els.sysReset.addEventListener('click', () => {
 });
 
 // Restore from localStorage
+const savedProvider = localStorage.getItem(STORE.provider);
+if (savedProvider) els.provider.value = savedProvider;
 const savedEndpoint = localStorage.getItem(STORE.endpoint);
 if (savedEndpoint) els.endpoint.value = savedEndpoint;
 const savedModel = localStorage.getItem(STORE.model);

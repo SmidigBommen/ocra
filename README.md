@@ -1,33 +1,56 @@
 # OCRA
 
-OCRA is a small browser-based OCR playground for local vision models. It lets you upload, paste, or drag an image into the page, then sends it to an OpenAI-compatible chat completions endpoint such as LM Studio.
+OCRA is a browser-based OCR playground for local and external vision models. Upload, paste, or drag an image into the page, then send it to a selected provider for OCR and image description.
 
-The app is designed for testing handwriting OCR. You can optionally provide a handwriting reference image plus a matching typed transcription so the model can learn the writer's letterforms before reading the target image.
+It is designed for testing handwriting OCR. You can optionally provide a handwriting reference image plus a matching typed transcription so the model can learn the writer's letterforms before reading the target image.
 
 ## Features
 
-- Single-file web app: `index.html`
 - Upload, drag-and-drop, or paste images from the clipboard
-- Works with OpenAI-compatible local endpoints
-- Default target: LM Studio at `http://localhost:1234/v1`
+- Provider selector for:
+  - Local LM Studio / OpenAI-compatible endpoint
+  - OpenAI GPT API
+  - Anthropic Claude API
 - Optional handwriting reference image
 - Optional numbered transcription reference
 - Streams model output into:
   - Description
   - Extracted Text
 - Settings are saved in browser `localStorage`
+- External API keys stay server-side via the included local proxy
 
 ## Files
 
 - `index.html` — the OCR web app
+- `server.js` — local static server and API proxy for OpenAI/Anthropic
+- `package.json` — Node start script
 - `Handwriting-numbered.png` — sample handwriting reference image
 - `numbered-machinewritten.txt` — matching typed transcription for the sample reference
 
 ## Requirements
 
 - A modern browser
-- LM Studio or another OpenAI-compatible server with a vision-capable model
-- A model that supports image input
+- Node.js 18+ for the proxy server
+- One of:
+  - LM Studio or another OpenAI-compatible server with a vision-capable model
+  - OpenAI API key and a vision-capable GPT model
+  - Anthropic API key and a vision-capable Claude model
+
+## Running the app
+
+From the repo directory:
+
+```bash
+npm start
+```
+
+Then open:
+
+```text
+http://localhost:8080
+```
+
+You can still open `index.html` directly for local LM Studio use, but OpenAI and Anthropic integrations require `server.js` so API keys are not exposed in browser JavaScript.
 
 ## LM Studio setup
 
@@ -40,26 +63,48 @@ The app is designed for testing handwriting OCR. You can optionally provide a ha
    http://localhost:1234/v1
    ```
 
-5. Open `index.html` in your browser.
-6. In Settings, set the model name to match the loaded LM Studio model ID.
+5. In OCRA Settings, choose **Local — LM Studio / OpenAI-compatible**.
+6. Set the model name to match the loaded LM Studio model ID.
 
 The app checks `/models` and shows whether it can reach the endpoint and whether the selected model appears in the model list.
 
-## Running the app
+## OpenAI setup
 
-Because this is a static app, you can open `index.html` directly in a browser.
-
-For a local web server, from the repo directory run:
+Start the app with your OpenAI API key:
 
 ```bash
-python3 -m http.server 8080
+OPENAI_API_KEY="your-key" npm start
 ```
 
-Then open:
+In OCRA Settings:
 
-```text
-http://localhost:8080
+1. Choose **External — OpenAI GPT**.
+2. Set a vision-capable model, for example:
+
+   ```text
+   gpt-4o
+   ```
+
+Requests are sent through the local proxy at `/api/openai/chat/completions`.
+
+## Anthropic Claude setup
+
+Start the app with your Anthropic API key:
+
+```bash
+ANTHROPIC_API_KEY="your-key" npm start
 ```
+
+In OCRA Settings:
+
+1. Choose **External — Anthropic Claude**.
+2. Set a vision-capable model, for example:
+
+   ```text
+   claude-3-5-sonnet-latest
+   ```
+
+Requests are sent through the local proxy at `/api/anthropic/chat/completions`. The proxy converts OCRA's OpenAI-style image messages into Anthropic's Messages API format.
 
 ## Using the handwriting reference
 
@@ -80,9 +125,9 @@ The reference is sent before the target image and instructed to be used only as 
 
 ## Notes
 
-- API requests are made directly from the browser to the configured endpoint.
-- Do not use a private cloud API key directly in this page unless you understand the security implications.
-- For hosted/cloud models, a small backend proxy should be added so secrets are not exposed in browser JavaScript.
+- Local LM Studio requests go directly from the browser to the configured endpoint.
+- OpenAI and Anthropic requests go through `server.js` so API keys remain in environment variables.
+- Do not put private cloud API keys directly into browser code.
 
 ## Project status
 

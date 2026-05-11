@@ -1,0 +1,12 @@
+{
+  "name": "ocra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser OCR playground for local and external vision models",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
