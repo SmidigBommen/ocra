@@ -316,8 +316,10 @@
             <option value="openai">External — OpenAI GPT</option>
             <option value="anthropic">External — Anthropic Claude</option>
           </select>
-          <label for="endpoint">Local endpoint</label>
+          <label for="endpoint" id="endpointSettingLabel">Local endpoint</label>
           <input id="endpoint" value="http://localhost:1234/v1">
+          <label for="requestTarget">Request target</label>
+          <input id="requestTarget" value="" disabled>
           <label for="model">Model</label>
           <input id="model" value="google/gemma-4-26b-a4b">
           <label for="sysPrompt" style="align-self:start; padding-top:6px;">System prompt</label>
@@ -348,8 +350,8 @@ const els = {
   previewName: $('previewName'), previewSize: $('previewSize'),
   analyze: $('analyze'), clear: $('clear'),
   description: $('description'), text: $('text'),
-  provider: $('provider'), endpoint: $('endpoint'), model: $('model'),
-  endpointLabel: $('endpointLabel'),
+  provider: $('provider'), endpoint: $('endpoint'), endpointSettingLabel: $('endpointSettingLabel'),
+  requestTarget: $('requestTarget'), model: $('model'), endpointLabel: $('endpointLabel'),
   status: $('status'), statusText: $('statusText'),
   refThumb: $('refThumb'), refFile: $('refFile'),
   refTxtFile: $('refTxtFile'), refLoadTxt: $('refLoadTxt'),
@@ -370,6 +372,25 @@ const STORE = {
   refImage: 'ocr.refImage',
   refText: 'ocr.refText',
 };
+
+const PROVIDERS = {
+  lmstudio: {
+    label: 'Local — LM Studio / OpenAI-compatible',
+    target: 'LM Studio endpoint',
+    defaultModel: 'google/gemma-4-26b-a4b',
+  },
+  openai: {
+    label: 'External — OpenAI GPT',
+    target: '/api/openai/chat/completions',
+    defaultModel: 'gpt-4o',
+  },
+  anthropic: {
+    label: 'External — Anthropic Claude',
+    target: '/api/anthropic/chat/completions',
+    defaultModel: 'claude-3-5-sonnet-latest',
+  },
+};
+let previousProvider = 'lmstudio';
 
 const DEFAULT_SYS_PROMPT = `You are a meticulous OCR and image-description assistant.
 
@@ -399,12 +420,36 @@ function setStatus(state, text) {
 }
 
 function providerName() {
-  return els.provider.options[els.provider.selectedIndex]?.textContent || els.provider.value;
+  return PROVIDERS[els.provider.value]?.label || els.provider.value;
+}
+
+function requestUrl() {
+  return els.provider.value === 'lmstudio'
+    ? els.endpoint.value.replace(/\/$/, '') + '/chat/completions'
+    : PROVIDERS[els.provider.value].target;
+}
+
+function updateProviderUi() {
+  const isLocal = els.provider.value === 'lmstudio';
+  els.endpoint.disabled = !isLocal;
+  els.endpoint.style.opacity = isLocal ? '' : '.55';
+  els.endpointSettingLabel.style.opacity = isLocal ? '' : '.55';
+  els.requestTarget.value = requestUrl();
+  syncEndpointLabel();
+}
+
+function applyProviderDefaultModel() {
+  const previousDefault = PROVIDERS[previousProvider]?.defaultModel;
+  const nextDefault = PROVIDERS[els.provider.value]?.defaultModel;
+  if (!els.model.value.trim() || els.model.value === previousDefault) {
+    els.model.value = nextDefault || els.model.value;
+    localStorage.setItem(STORE.model, els.model.value);
+  }
+  previousProvider = els.provider.value;
 }
 
 function syncEndpointLabel() {
-  const target = els.provider.value === 'lmstudio' ? els.endpoint.value : 'local proxy';
-  els.endpointLabel.textContent = providerName() + '  ·  ' + target + '  ·  ' + els.model.value;
+  els.endpointLabel.textContent = providerName() + '  ·  ' + requestUrl() + '  ·  ' + els.model.value;
 }
 
 async function checkEndpoint() {
@@ -546,10 +591,16 @@ async function analyze() {
   userContent.push({ type: 'image_url', image_url: { url: currentDataUrl } });
   messages.push({ role: 'user', content: userContent });
 
+  if (els.provider.value !== 'lmstudio' && location.protocol === 'file:') {
+    els.description.classList.add('error');
+    els.description.textContent = 'Error: External providers require the local proxy. Start with: npm start, then open http://localhost:8080';
+    els.text.innerHTML = '<span class="placeholder">—</span>';
+    els.analyze.disabled = false;
+    return;
+  }
+
   const body = { model: els.model.value, stream: true, messages };
-  const url = els.provider.value === 'lmstudio'
-    ? els.endpoint.value.replace(/\/$/, '') + '/chat/completions'
-    : '/api/' + els.provider.value + '/chat/completions';
+  const url = requestUrl();
 
   let acc = '';
   try {
@@ -673,9 +724,15 @@ function persist(key, el) {
   el.addEventListener('change', () => localStorage.setItem(key, el.value));
   el.addEventListener('input', () => localStorage.setItem(key, el.value));
 }
-els.provider.addEventListener('change', () => { syncEndpointLabel(); checkEndpoint(); });
-els.endpoint.addEventListener('change', () => { syncEndpointLabel(); checkEndpoint(); });
-els.model.addEventListener('change', () => { syncEndpointLabel(); checkEndpoint(); });
+els.provider.addEventListener('change', () => {
+  applyProviderDefaultModel();
+  updateProviderUi();
+  checkEndpoint();
+});
+els.endpoint.addEventListener('change', () => { updateProviderUi(); checkEndpoint(); });
+els.endpoint.addEventListener('input', updateProviderUi);
+els.model.addEventListener('change', () => { updateProviderUi(); checkEndpoint(); });
+els.model.addEventListener('input', updateProviderUi);
 persist(STORE.provider, els.provider);
 persist(STORE.endpoint, els.endpoint);
 persist(STORE.model, els.model);
@@ -688,7 +745,8 @@ els.sysReset.addEventListener('click', () => {
 
 // Restore from localStorage
 const savedProvider = localStorage.getItem(STORE.provider);
-if (savedProvider) els.provider.value = savedProvider;
+if (savedProvider && PROVIDERS[savedProvider]) els.provider.value = savedProvider;
+previousProvider = els.provider.value;
 const savedEndpoint = localStorage.getItem(STORE.endpoint);
 if (savedEndpoint) els.endpoint.value = savedEndpoint;
 const savedModel = localStorage.getItem(STORE.model);
@@ -700,7 +758,7 @@ const savedRefImg = localStorage.getItem(STORE.refImage);
 if (savedRefImg) setReferenceImage(savedRefImg);
 updateRefStatus();
 
-syncEndpointLabel();
+updateProviderUi();
 checkEndpoint();
 </script>
 </body>

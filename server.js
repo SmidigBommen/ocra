@@ -6,6 +6,25 @@ const path = require('path');
 const PORT = Number(process.env.PORT || 8080);
 const ROOT = __dirname;
 
+function loadDotEnv() {
+  const file = path.join(ROOT, '.env');
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
+loadDotEnv();
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -88,6 +107,7 @@ function toAnthropicBody(openAiBody) {
 }
 
 async function proxyOpenAI(req, res) {
+  console.log('Proxying request to OpenAI');
   if (!process.env.OPENAI_API_KEY) return sendJson(res, 500, { error: 'Missing OPENAI_API_KEY' });
   const body = await readBody(req);
   const upstream = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -110,6 +130,7 @@ async function proxyOpenAI(req, res) {
 }
 
 async function proxyAnthropic(req, res) {
+  console.log('Proxying request to Anthropic');
   if (!process.env.ANTHROPIC_API_KEY) return sendJson(res, 500, { error: 'Missing ANTHROPIC_API_KEY' });
   const incoming = JSON.parse(await readBody(req));
   const body = JSON.stringify(toAnthropicBody(incoming));

@@ -98,13 +98,23 @@ ANTHROPIC_API_KEY="your-key" npm start
 In OCRA Settings:
 
 1. Choose **External — Anthropic Claude**.
-2. Set a vision-capable model, for example:
+2. Confirm **Request target** shows `/api/anthropic/chat/completions`.
+3. Set a vision-capable model, for example:
 
    ```text
    claude-3-5-sonnet-latest
    ```
 
 Requests are sent through the local proxy at `/api/anthropic/chat/completions`. The proxy converts OCRA's OpenAI-style image messages into Anthropic's Messages API format.
+
+You can also create a local `.env` file instead of exporting keys:
+
+```text
+ANTHROPIC_API_KEY=your-key
+OPENAI_API_KEY=your-key
+```
+
+`.env` is ignored by git.
 
 ## Using the handwriting reference
 
@@ -127,6 +137,7 @@ The reference is sent before the target image and instructed to be used only as 
 
 - Local LM Studio requests go directly from the browser to the configured endpoint.
 - OpenAI and Anthropic requests go through `server.js` so API keys remain in environment variables.
+- If Claude still appears to use the local model, reload `http://localhost:8080`, choose **External — Anthropic Claude**, and check that **Request target** is `/api/anthropic/chat/completions`.
 - Do not put private cloud API keys directly into browser code.
 
 ## Project status
