@@ -344,8 +344,25 @@
         <div class="card" id="description"><span class="placeholder">Upload an image and click Analyze.</span></div>
       </div>
       <div class="section">
+        <h2>Labels</h2>
+        <div class="card mono" id="labels"><span class="placeholder">—</span></div>
+      </div>
+      <div class="section">
         <h2>Extracted Text</h2>
         <div class="card mono" id="text"><span class="placeholder">—</span></div>
+      </div>
+      <div class="section">
+        <h2>Archive</h2>
+        <div class="card">
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+            <span id="archiveCount" class="placeholder">0 notes saved locally</span>
+            <span style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button id="archiveJson" type="button">Export JSON</button>
+              <button id="archiveCsv" type="button">Export CSV for Notion</button>
+              <button id="archiveClear" type="button">Clear archive</button>
+            </span>
+          </div>
+        </div>
       </div>
     </section>
   </main>
@@ -357,7 +374,7 @@ const els = {
   preview: $('preview'), previewImg: $('previewImg'),
   previewName: $('previewName'), previewSize: $('previewSize'),
   analyze: $('analyze'), clear: $('clear'),
-  description: $('description'), text: $('text'),
+  description: $('description'), labels: $('labels'), text: $('text'),
   provider: $('provider'), endpoint: $('endpoint'), endpointSettingLabel: $('endpointSettingLabel'),
   requestTarget: $('requestTarget'), model: $('model'), endpointLabel: $('endpointLabel'),
   status: $('status'), statusText: $('statusText'),
@@ -367,6 +384,7 @@ const els = {
   refText: $('refText'), refClear: $('refClear'),
   refStatus: $('refStatus'),
   sysPrompt: $('sysPrompt'), sysReset: $('sysReset'),
+  archiveCount: $('archiveCount'), archiveJson: $('archiveJson'), archiveCsv: $('archiveCsv'), archiveClear: $('archiveClear'),
 };
 
 let currentDataUrl = null;
@@ -379,6 +397,7 @@ const STORE = {
   sysPrompt: 'ocr.sysPrompt',
   refImage: 'ocr.refImage',
   refText: 'ocr.refText',
+  archive: 'ocr.archive',
 };
 
 const PROVIDERS = {
@@ -406,15 +425,18 @@ The user may provide a HANDWRITING REFERENCE before the target image. The refere
 
 Then the user provides the TARGET image to analyze.
 
-Respond in EXACTLY this format, with no preamble and no text outside these two sections:
+Respond in EXACTLY this format, with no preamble and no text outside these three sections:
 
 ### Description
 A 2-4 sentence description of the target image: subject, layout, medium (e.g. "handwritten note in blue ink on lined paper"), and any notable visual details. If the target is purely text, describe the document type and layout.
 
+### Labels
+3-8 short topic labels for the note, comma-separated. Use lowercase where natural. Prefer useful Notion-style labels such as strategy, project management, engineering, meetings, hiring, finance, personal, ideas, todo.
+
 ### Extracted Text
 The full text from the target image, transcribed verbatim. Preserve line breaks and visual structure (lists, indentation, columns) as faithfully as plain text allows. Do not correct spelling, grammar, or punctuation. If a word or character is unclear, transcribe your best guess immediately followed by [?] (e.g. "meeting[?]"). If a section is completely illegible, write [illegible]. If the target contains no text at all, write: (no text found).
 
-Never invent text that is not visible. Never add commentary, summaries, or notes outside the two sections above.`;
+Never invent text that is not visible. Labels may infer the topic from visible text, but do not add facts. Never add commentary, summaries, or notes outside the three sections above.`;
 
 function fmtBytes(n) {
   if (n < 1024) return n + ' B';
@@ -555,30 +577,107 @@ function clearAll() {
   els.clear.disabled = true;
   els.file.value = '';
   els.description.innerHTML = '<span class="placeholder">Upload an image and click Analyze.</span>';
+  els.labels.innerHTML = '<span class="placeholder">—</span>';
   els.text.innerHTML = '<span class="placeholder">—</span>';
   els.description.classList.remove('error');
+  els.labels.classList.remove('error');
   els.text.classList.remove('error');
 }
 
-function renderSplit(full) {
-  // Split on the two headers; fall back to dumping everything in description.
-  const descMatch = full.match(/###\s*Description\s*\n([\s\S]*?)(?=\n###\s*Extracted Text|$)/i);
+function parseResult(full) {
+  const descMatch = full.match(/###\s*Description\s*\n([\s\S]*?)(?=\n###\s*Labels|\n###\s*Extracted Text|$)/i);
+  const labelsMatch = full.match(/###\s*Labels\s*\n([\s\S]*?)(?=\n###\s*Extracted Text|$)/i);
   const textMatch = full.match(/###\s*Extracted Text\s*\n([\s\S]*)$/i);
-  if (descMatch || textMatch) {
-    els.description.textContent = (descMatch ? descMatch[1].trim() : '') || '—';
-    els.text.textContent = (textMatch ? textMatch[1].trim() : '') || '—';
+  return {
+    description: (descMatch ? descMatch[1].trim() : '').trim(),
+    labels: (labelsMatch ? labelsMatch[1].trim() : '').split(',').map(s => s.trim()).filter(Boolean),
+    text: (textMatch ? textMatch[1].trim() : '').trim(),
+  };
+}
+
+function renderSplit(full) {
+  // Split on the expected headers; fall back to dumping everything in description.
+  const parsed = parseResult(full);
+  if (parsed.description || parsed.labels.length || parsed.text) {
+    els.description.textContent = parsed.description || '—';
+    els.labels.textContent = parsed.labels.join(', ') || '—';
+    els.text.textContent = parsed.text || '—';
   } else {
     els.description.textContent = full.trim();
+    els.labels.textContent = '—';
     els.text.textContent = '—';
   }
+}
+
+function archiveEntries() {
+  try { return JSON.parse(localStorage.getItem(STORE.archive) || '[]'); }
+  catch { return []; }
+}
+
+function setArchiveEntries(entries) {
+  localStorage.setItem(STORE.archive, JSON.stringify(entries));
+  updateArchiveUi();
+}
+
+function saveArchiveEntry(full) {
+  const parsed = parseResult(full);
+  const now = new Date();
+  const entry = {
+    id: now.toISOString() + '-' + Math.random().toString(36).slice(2, 8),
+    createdAt: now.toISOString(),
+    createdDate: now.toISOString().slice(0, 10),
+    title: els.previewName.textContent || 'OCR note',
+    labels: parsed.labels,
+    description: parsed.description,
+    extractedText: parsed.text,
+    provider: els.provider.value,
+    model: els.model.value,
+  };
+  const entries = archiveEntries();
+  entries.unshift(entry);
+  setArchiveEntries(entries);
+}
+
+function updateArchiveUi() {
+  const n = archiveEntries().length;
+  els.archiveCount.textContent = n + (n === 1 ? ' note' : ' notes') + ' saved locally';
+}
+
+function downloadFile(name, type, content) {
+  const blob = new Blob([content], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function csvCell(value) {
+  const s = Array.isArray(value) ? value.join(', ') : String(value ?? '');
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+function exportArchiveCsv() {
+  const entries = archiveEntries();
+  const headers = ['Title', 'Created Date', 'Labels', 'Description', 'Extracted Text', 'Provider', 'Model'];
+  const rows = entries.map(e => [e.title, e.createdDate, e.labels, e.description, e.extractedText, e.provider, e.model].map(csvCell).join(','));
+  downloadFile('ocra-notion-import.csv', 'text/csv;charset=utf-8', headers.map(csvCell).join(',') + '\n' + rows.join('\n'));
+}
+
+function exportArchiveJson() {
+  downloadFile('ocra-archive.json', 'application/json;charset=utf-8', JSON.stringify(archiveEntries(), null, 2));
 }
 
 async function analyze() {
   if (!currentDataUrl) return;
   els.analyze.disabled = true;
   els.description.classList.remove('error');
+  els.labels.classList.remove('error');
   els.text.classList.remove('error');
   els.description.innerHTML = '<span class="spinner"></span><span class="placeholder">analyzing…</span>';
+  els.labels.innerHTML = '<span class="placeholder">—</span>';
   els.text.innerHTML = '<span class="placeholder">—</span>';
 
   const messages = [];
@@ -595,7 +694,7 @@ async function analyze() {
     }
     userContent.push({ type: 'text', text: '— end of reference —' });
   }
-  userContent.push({ type: 'text', text: 'TARGET — analyze this image and respond in the required two-section format:' });
+  userContent.push({ type: 'text', text: 'TARGET — analyze this image and respond in the required three-section format:' });
   userContent.push({ type: 'image_url', image_url: { url: currentDataUrl } });
   messages.push({ role: 'user', content: userContent });
 
@@ -648,10 +747,13 @@ async function analyze() {
     if (!acc) {
       els.description.textContent = '(empty response)';
       els.description.classList.add('error');
+    } else {
+      saveArchiveEntry(acc);
     }
   } catch (e) {
     els.description.classList.add('error');
     els.description.textContent = 'Error: ' + e.message;
+    els.labels.innerHTML = '<span class="placeholder">—</span>';
     els.text.innerHTML = '<span class="placeholder">—</span>';
   } finally {
     els.analyze.disabled = false;
@@ -683,6 +785,11 @@ window.addEventListener('paste', (e) => {
 // Buttons
 els.analyze.addEventListener('click', analyze);
 els.clear.addEventListener('click', clearAll);
+els.archiveJson.addEventListener('click', exportArchiveJson);
+els.archiveCsv.addEventListener('click', exportArchiveCsv);
+els.archiveClear.addEventListener('click', () => {
+  if (confirm('Clear all locally archived OCR notes?')) setArchiveEntries([]);
+});
 
 // Reference image
 els.refThumb.addEventListener('click', () => els.refFile.click());
@@ -759,12 +866,14 @@ const savedEndpoint = localStorage.getItem(STORE.endpoint);
 if (savedEndpoint) els.endpoint.value = savedEndpoint;
 const savedModel = localStorage.getItem(STORE.model);
 if (savedModel) els.model.value = savedModel;
-els.sysPrompt.value = localStorage.getItem(STORE.sysPrompt) || DEFAULT_SYS_PROMPT;
+const savedSysPrompt = localStorage.getItem(STORE.sysPrompt);
+els.sysPrompt.value = savedSysPrompt && savedSysPrompt.includes('### Labels') ? savedSysPrompt : DEFAULT_SYS_PROMPT;
 const savedRefText = localStorage.getItem(STORE.refText);
 if (savedRefText) els.refText.value = savedRefText;
 const savedRefImg = localStorage.getItem(STORE.refImage);
 if (savedRefImg) setReferenceImage(savedRefImg);
 updateRefStatus();
+updateArchiveUi();
 
 updateProviderUi();
 checkEndpoint();

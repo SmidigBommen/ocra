@@ -15,7 +15,13 @@ It is designed for testing handwriting OCR. You can optionally provide a handwri
 - Optional numbered transcription reference
 - Streams model output into:
   - Description
+  - Labels
   - Extracted Text
+- Automatically archives generated notes locally with:
+  - creation timestamp/date
+  - topic labels
+  - OCR text and description
+- Exports archive as JSON or CSV for Notion import
 - Settings are saved in browser `localStorage`
 - External API keys stay server-side via the included local proxy
 
@@ -123,6 +129,29 @@ OPENAI_API_KEY=your-key
 ```
 
 `.env` is ignored by git.
+
+## Note archive and Notion
+
+Each successful analysis is saved to a local browser archive. The archive entry contains:
+
+- Title/source image name
+- Created timestamp and created date
+- Topic labels
+- Description
+- Extracted text
+- Provider and model
+
+Use **Export CSV for Notion** to download `ocra-notion-import.csv`, then import that CSV into a Notion database. Suggested Notion property mapping:
+
+- `Title` → Title
+- `Created Date` → Date
+- `Labels` → Multi-select
+- `Description` → Text
+- `Extracted Text` → Text
+- `Provider` → Select
+- `Model` → Text
+
+Direct Notion MCP sync is a planned next step. The current implementation keeps the archive local and provides a Notion-ready CSV export.
 
 ## Using the handwriting reference
 
