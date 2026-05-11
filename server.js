@@ -140,9 +140,27 @@ async function notionFetch(pathname, options = {}) {
   return r.json();
 }
 
-async function createNotionPage(entry) {
-  const databaseId = notionDatabaseId();
-  if (!databaseId) throw new Error('Missing NOTION_DATABASE_ID or NOTION_DB_ID');
+async function listNotionDatabases(req, res) {
+  const data = await notionFetch('/search', {
+    method: 'POST',
+    body: JSON.stringify({
+      filter: { property: 'object', value: 'database' },
+      page_size: 100,
+    }),
+  });
+  sendJson(res, 200, {
+    ok: true,
+    databases: (data.results || []).map(db => ({
+      id: db.id,
+      title: (db.title || []).map(t => t.plain_text).join('') || 'Untitled database',
+      url: db.url,
+    })),
+  });
+}
+
+async function createNotionPage(entry, databaseIdOverride) {
+  const databaseId = databaseIdOverride || notionDatabaseId();
+  if (!databaseId) throw new Error('Missing Notion database. Choose one in the UI or set NOTION_DATABASE_ID/NOTION_DB_ID');
 
   const db = await notionFetch('/databases/' + encodeURIComponent(databaseId));
   const schema = db.properties || {};
@@ -184,7 +202,7 @@ async function createNotionPages(req, res) {
   const entries = Array.isArray(body.entries) ? body.entries : [body.entry || body];
   const results = [];
   for (const entry of entries) {
-    const page = await createNotionPage(entry);
+    const page = await createNotionPage(entry, body.databaseId);
     results.push({ id: page.id, url: page.url });
   }
   sendJson(res, 200, { ok: true, count: results.length, results });
@@ -317,6 +335,7 @@ const server = http.createServer(async (req, res) => {
         notionDatabase: Boolean(notionDatabaseId()),
       });
     }
+    if (req.method === 'GET' && req.url === '/api/notion/databases') return listNotionDatabases(req, res);
     if (req.method === 'POST' && req.url === '/api/notion/pages') return createNotionPages(req, res);
     if (req.method === 'POST' && req.url === '/api/openai/chat/completions') return proxyOpenAI(req, res);
     if (req.method === 'POST' && req.url === '/api/anthropic/chat/completions') return proxyAnthropic(req, res);

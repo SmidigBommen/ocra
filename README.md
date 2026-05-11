@@ -155,10 +155,15 @@ Use **Export CSV for Notion** to download `ocra-notion-import.csv`, then import 
 
 OCRA can also sync archived notes directly to a Notion database through the included local server.
 
-Add these to `.env`:
+Add your Notion key to `.env`:
 
 ```text
 NOTION_API_KEY=secret_your_notion_integration_key
+```
+
+Optionally add a default database ID too:
+
+```text
 NOTION_DATABASE_ID=your_database_id
 ```
 
@@ -168,7 +173,7 @@ Then restart:
 npm start
 ```
 
-In Notion, make sure your integration has access to the target database. The app will create one Notion page per archived note. It auto-detects the database title property and fills these properties when they exist:
+In Notion, make sure your integration has access to the target database. In the app, click **Find databases** and choose the database to sync to. The app will create one Notion page per archived note. It auto-detects the database title property and fills these properties when they exist:
 
 - `Created Date` — Date
 - `Labels` — Multi-select

@@ -357,6 +357,8 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
             <span id="archiveCount" class="placeholder">0 notes saved locally</span>
             <span style="display:flex; gap:8px; flex-wrap:wrap;">
+              <select id="notionDatabase" style="width:auto; max-width:260px;"><option value="">Notion database…</option></select>
+              <button id="notionRefresh" type="button">Find databases</button>
               <button id="archiveJson" type="button">Export JSON</button>
               <button id="archiveCsv" type="button">Export CSV for Notion</button>
               <button id="notionSync" type="button">Sync all to Notion</button>
@@ -386,6 +388,7 @@ const els = {
   refStatus: $('refStatus'),
   sysPrompt: $('sysPrompt'), sysReset: $('sysReset'),
   archiveCount: $('archiveCount'), archiveJson: $('archiveJson'), archiveCsv: $('archiveCsv'),
+  notionDatabase: $('notionDatabase'), notionRefresh: $('notionRefresh'),
   notionSync: $('notionSync'), archiveClear: $('archiveClear'),
 };
 
@@ -400,6 +403,7 @@ const STORE = {
   refImage: 'ocr.refImage',
   refText: 'ocr.refText',
   archive: 'ocr.archive',
+  notionDatabase: 'ocr.notionDatabase',
 };
 
 const PROVIDERS = {
@@ -672,16 +676,43 @@ function exportArchiveJson() {
   downloadFile('ocra-archive.json', 'application/json;charset=utf-8', JSON.stringify(archiveEntries(), null, 2));
 }
 
+async function loadNotionDatabases() {
+  els.notionRefresh.disabled = true;
+  els.notionRefresh.textContent = 'Finding…';
+  try {
+    const res = await fetch('/api/notion/databases');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    const current = els.notionDatabase.value || localStorage.getItem(STORE.notionDatabase) || '';
+    els.notionDatabase.innerHTML = '<option value="">Notion database…</option>';
+    for (const db of data.databases || []) {
+      const opt = document.createElement('option');
+      opt.value = db.id;
+      opt.textContent = db.title;
+      els.notionDatabase.appendChild(opt);
+    }
+    if (current) els.notionDatabase.value = current;
+    if (!data.databases?.length) alert('No Notion databases found. Share the database with your Notion integration first.');
+  } catch (e) {
+    alert('Could not list Notion databases: ' + e.message);
+  } finally {
+    els.notionRefresh.disabled = false;
+    els.notionRefresh.textContent = 'Find databases';
+  }
+}
+
 async function syncArchiveToNotion() {
   const entries = archiveEntries();
   if (!entries.length) return alert('No archived notes to sync yet.');
+  const databaseId = els.notionDatabase.value || localStorage.getItem(STORE.notionDatabase) || '';
+  if (!databaseId && !confirm('No database selected. Try NOTION_DATABASE_ID from .env instead?')) return;
   els.notionSync.disabled = true;
   els.notionSync.textContent = 'Syncing…';
   try {
     const res = await fetch('/api/notion/pages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entries }),
+      body: JSON.stringify({ entries, databaseId }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
@@ -811,6 +842,8 @@ els.analyze.addEventListener('click', analyze);
 els.clear.addEventListener('click', clearAll);
 els.archiveJson.addEventListener('click', exportArchiveJson);
 els.archiveCsv.addEventListener('click', exportArchiveCsv);
+els.notionRefresh.addEventListener('click', loadNotionDatabases);
+els.notionDatabase.addEventListener('change', () => localStorage.setItem(STORE.notionDatabase, els.notionDatabase.value));
 els.notionSync.addEventListener('click', syncArchiveToNotion);
 els.archiveClear.addEventListener('click', () => {
   if (confirm('Clear all locally archived OCR notes?')) setArchiveEntries([]);
@@ -897,6 +930,14 @@ const savedRefText = localStorage.getItem(STORE.refText);
 if (savedRefText) els.refText.value = savedRefText;
 const savedRefImg = localStorage.getItem(STORE.refImage);
 if (savedRefImg) setReferenceImage(savedRefImg);
+const savedNotionDatabase = localStorage.getItem(STORE.notionDatabase);
+if (savedNotionDatabase) {
+  const opt = document.createElement('option');
+  opt.value = savedNotionDatabase;
+  opt.textContent = 'Saved Notion database';
+  els.notionDatabase.appendChild(opt);
+  els.notionDatabase.value = savedNotionDatabase;
+}
 updateRefStatus();
 updateArchiveUi();
 
