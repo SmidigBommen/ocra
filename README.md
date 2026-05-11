@@ -151,7 +151,34 @@ Use **Export CSV for Notion** to download `ocra-notion-import.csv`, then import 
 - `Provider` → Select
 - `Model` → Text
 
-Direct Notion MCP sync is a planned next step. The current implementation keeps the archive local and provides a Notion-ready CSV export.
+### Direct Notion sync
+
+OCRA can also sync archived notes directly to a Notion database through the included local server.
+
+Add these to `.env`:
+
+```text
+NOTION_API_KEY=secret_your_notion_integration_key
+NOTION_DATABASE_ID=your_database_id
+```
+
+Then restart:
+
+```bash
+npm start
+```
+
+In Notion, make sure your integration has access to the target database. The app will create one Notion page per archived note. It auto-detects the database title property and fills these properties when they exist:
+
+- `Created Date` — Date
+- `Labels` — Multi-select
+- `Description` — Text
+- `Provider` — Select or Text
+- `Model` — Text
+
+The full OCR transcription is added as page content under an **Extracted Text** heading.
+
+The Notion MCP URL may be useful for agent workflows later; the current app integration uses Notion's HTTP API from `server.js`.
 
 ## Using the handwriting reference
 

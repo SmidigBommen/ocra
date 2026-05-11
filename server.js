@@ -100,6 +100,96 @@ function normalizeAnthropicModel(model) {
   return aliases[key] || model;
 }
 
+function notionKey() {
+  return process.env.NOTION_API_KEY || process.env.NOTION_TOKEN;
+}
+
+function notionDatabaseId() {
+  return process.env.NOTION_DATABASE_ID || process.env.NOTION_DB_ID;
+}
+
+function richText(text) {
+  const s = String(text || '').slice(0, 2000);
+  return s ? [{ type: 'text', text: { content: s } }] : [];
+}
+
+function notionTextBlocks(text) {
+  const s = String(text || '(no text)');
+  const chunks = [];
+  for (let i = 0; i < s.length; i += 1900) chunks.push(s.slice(i, i + 1900));
+  return chunks.map(chunk => ({
+    object: 'block',
+    type: 'paragraph',
+    paragraph: { rich_text: richText(chunk) },
+  }));
+}
+
+async function notionFetch(pathname, options = {}) {
+  const key = notionKey();
+  if (!key) throw new Error('Missing NOTION_API_KEY or NOTION_TOKEN');
+  const r = await fetch('https://api.notion.com/v1' + pathname, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${key}`,
+      'Notion-Version': process.env.NOTION_VERSION || '2022-06-28',
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  if (!r.ok) throw new Error('Notion HTTP ' + r.status + ' — ' + (await r.text()).slice(0, 500));
+  return r.json();
+}
+
+async function createNotionPage(entry) {
+  const databaseId = notionDatabaseId();
+  if (!databaseId) throw new Error('Missing NOTION_DATABASE_ID or NOTION_DB_ID');
+
+  const db = await notionFetch('/databases/' + encodeURIComponent(databaseId));
+  const schema = db.properties || {};
+  const titleName = Object.entries(schema).find(([, p]) => p.type === 'title')?.[0] || 'Name';
+  const properties = {
+    [titleName]: { title: richText(entry.title || 'OCR note') },
+  };
+
+  function addIf(name, value) {
+    const prop = schema[name];
+    if (!prop) return;
+    if (prop.type === 'date') properties[name] = { date: { start: value } };
+    if (prop.type === 'multi_select') properties[name] = { multi_select: (value || []).map(name => ({ name })) };
+    if (prop.type === 'select') properties[name] = { select: value ? { name: String(value) } : null };
+    if (prop.type === 'rich_text') properties[name] = { rich_text: richText(value) };
+  }
+
+  addIf('Created Date', entry.createdDate || entry.createdAt?.slice(0, 10));
+  addIf('Labels', entry.labels || []);
+  addIf('Description', entry.description || '');
+  addIf('Provider', entry.provider || '');
+  addIf('Model', entry.model || '');
+
+  return notionFetch('/pages', {
+    method: 'POST',
+    body: JSON.stringify({
+      parent: { database_id: databaseId },
+      properties,
+      children: [
+        { object: 'block', type: 'heading_2', heading_2: { rich_text: richText('Extracted Text') } },
+        ...notionTextBlocks(entry.extractedText || ''),
+      ],
+    }),
+  });
+}
+
+async function createNotionPages(req, res) {
+  const body = JSON.parse(await readBody(req));
+  const entries = Array.isArray(body.entries) ? body.entries : [body.entry || body];
+  const results = [];
+  for (const entry of entries) {
+    const page = await createNotionPage(entry);
+    results.push({ id: page.id, url: page.url });
+  }
+  sendJson(res, 200, { ok: true, count: results.length, results });
+}
+
 function toAnthropicBody(openAiBody) {
   const system = [];
   const messages = [];
@@ -223,8 +313,11 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         openai: Boolean(process.env.OPENAI_API_KEY),
         anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
+        notion: Boolean(notionKey()),
+        notionDatabase: Boolean(notionDatabaseId()),
       });
     }
+    if (req.method === 'POST' && req.url === '/api/notion/pages') return createNotionPages(req, res);
     if (req.method === 'POST' && req.url === '/api/openai/chat/completions') return proxyOpenAI(req, res);
     if (req.method === 'POST' && req.url === '/api/anthropic/chat/completions') return proxyAnthropic(req, res);
     if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
