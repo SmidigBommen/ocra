@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Local OCR — LM Studio</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1f232c;
+    --border: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8a93a6;
+    --accent: #7c9cff;
+    --accent-2: #5a7bff;
+    --error: #ff6b6b;
+    --ok: #5ad19b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: grid;
+    grid-template-rows: auto 1fr;
+  }
+  header {
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  header .endpoint {
+    color: var(--muted);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  header .status {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  header .status .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+  }
+  header .status.ok .dot { background: var(--ok); }
+  header .status.err .dot { background: var(--error); }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.2fr);
+    gap: 1px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .pane {
+    background: var(--bg);
+    overflow: auto;
+    padding: 22px;
+  }
+  .left { display: flex; flex-direction: column; gap: 14px; }
+
+  .drop {
+    border: 1.5px dashed var(--border);
+    border-radius: 10px;
+    padding: 28px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: var(--panel);
+  }
+  .drop:hover, .drop.over {
+    border-color: var(--accent);
+    background: var(--panel-2);
+    color: var(--text);
+  }
+  .drop strong { color: var(--text); }
+  .drop kbd {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 11px;
+  }
+
+  .preview {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    display: none;
+  }
+  .preview.show { display: block; }
+  .preview img {
+    max-width: 100%;
+    max-height: 50vh;
+    display: block;
+    margin: 0 auto;
+    border-radius: 6px;
+  }
+  .preview .meta {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .controls { display: flex; gap: 10px; }
+  button {
+    font: inherit;
+    padding: 9px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button.primary {
+    background: var(--accent-2);
+    border-color: var(--accent-2);
+    color: white;
+    font-weight: 500;
+  }
+  button.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  .right h2 {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--muted);
+    margin: 0 0 8px;
+  }
+  .section {
+    margin-bottom: 22px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 14px;
+    min-height: 40px;
+  }
+  .card.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .card .placeholder { color: var(--muted); font-style: italic; }
+  .error {
+    color: var(--error);
+    background: rgba(255, 107, 107, .08);
+    border-color: rgba(255, 107, 107, .35);
+  }
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--muted);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    vertical-align: -2px;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .settings {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 10px;
+    align-items: center;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .settings input, .settings textarea {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font: inherit;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    width: 100%;
+    resize: vertical;
+  }
+  .settings textarea { min-height: 120px; line-height: 1.5; }
+
+  .ref-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .ref-thumb {
+    background: var(--panel-2);
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    height: 110px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+    overflow: hidden;
+    padding: 4px;
+  }
+  .ref-thumb:hover { border-color: var(--accent); color: var(--text); }
+  .ref-thumb img { width: 100%; height: 100%; object-fit: contain; }
+  .ref-right { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .ref-right textarea {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    resize: none;
+    min-height: 70px;
+  }
+  .ref-right .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .ref-right button {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+  .ref-status { color: var(--muted); }
+  .ref-status.on { color: var(--ok); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Local OCR</h1>
+    <span class="endpoint" id="endpointLabel"></span>
+    <span class="status" id="status"><span class="dot"></span><span id="statusText">checking…</span></span>
+  </header>
+
+  <main>
+    <section class="pane left">
+      <div class="drop" id="drop" tabindex="0">
+        <div><strong>Drop an image</strong>, click to choose, or paste from clipboard <kbd>Ctrl</kbd>+<kbd>V</kbd></div>
+        <div style="margin-top:6px; font-size:12px;">PNG, JPG, WebP, GIF</div>
+        <input type="file" id="file" accept="image/*" hidden>
+      </div>
+
+      <div class="preview" id="preview">
+        <img id="previewImg" alt="">
+        <div class="meta">
+          <span id="previewName"></span>
+          <span id="previewSize"></span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="primary" id="analyze" disabled>Analyze</button>
+        <button id="clear" disabled>Clear</button>
+      </div>
+
+      <details open>
+        <summary style="cursor:pointer; color:var(--muted); font-size:12px;">
+          Handwriting reference <span class="ref-status" id="refStatus">— none</span>
+        </summary>
+        <div class="ref-box">
+          <div class="ref-thumb" id="refThumb" title="Click to upload reference image">
+            <span id="refPlaceholder">click to add<br>reference image</span>
+          </div>
+          <input type="file" id="refFile" accept="image/*" hidden>
+          <input type="file" id="refTxtFile" accept=".txt,text/plain" hidden>
+          <div class="ref-right">
+            <textarea id="refText" placeholder="Type or load the matching transcription. Numbered lines (1, 2, 3 ...) work best — they should mirror the numbered lines in your reference image."></textarea>
+            <div class="row">
+              <span>Saved locally · drop a .txt on the box too</span>
+              <span style="display:flex; gap:6px;">
+                <button id="refLoadTxt" type="button">Load .txt</button>
+                <button id="refClear" type="button">Clear</button>
+              </span>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary style="cursor:pointer; color:var(--muted); font-size:12px;">Settings</summary>
+        <div class="settings" style="margin-top:10px;">
+          <label for="endpoint">Endpoint</label>
+          <input id="endpoint" value="http://localhost:1234/v1">
+          <label for="model">Model</label>
+          <input id="model" value="google/gemma-4-26b-a4b">
+          <label for="sysPrompt" style="align-self:start; padding-top:6px;">System prompt</label>
+          <textarea id="sysPrompt"></textarea>
+          <span></span>
+          <button id="sysReset" type="button" style="justify-self:start; font-size:11px; padding:4px 10px;">Reset to default</button>
+        </div>
+      </details>
+    </section>
+
+    <section class="pane right">
+      <div class="section">
+        <h2>Description</h2>
+        <div class="card" id="description"><span class="placeholder">Upload an image and click Analyze.</span></div>
+      </div>
+      <div class="section">
+        <h2>Extracted Text</h2>
+        <div class="card mono" id="text"><span class="placeholder">—</span></div>
+      </div>
+    </section>
+  </main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const els = {
+  drop: $('drop'), file: $('file'),
+  preview: $('preview'), previewImg: $('previewImg'),
+  previewName: $('previewName'), previewSize: $('previewSize'),
+  analyze: $('analyze'), clear: $('clear'),
+  description: $('description'), text: $('text'),
+  endpoint: $('endpoint'), model: $('model'),
+  endpointLabel: $('endpointLabel'),
+  status: $('status'), statusText: $('statusText'),
+  refThumb: $('refThumb'), refFile: $('refFile'),
+  refTxtFile: $('refTxtFile'), refLoadTxt: $('refLoadTxt'),
+  refPlaceholder: $('refPlaceholder'),
+  refText: $('refText'), refClear: $('refClear'),
+  refStatus: $('refStatus'),
+  sysPrompt: $('sysPrompt'), sysReset: $('sysReset'),
+};
+
+let currentDataUrl = null;
+let referenceDataUrl = null;
+
+const STORE = {
+  endpoint: 'ocr.endpoint',
+  model: 'ocr.model',
+  sysPrompt: 'ocr.sysPrompt',
+  refImage: 'ocr.refImage',
+  refText: 'ocr.refText',
+};
+
+const DEFAULT_SYS_PROMPT = `You are a meticulous OCR and image-description assistant.
+
+The user may provide a HANDWRITING REFERENCE before the target image. The reference is a sample of the user's handwriting paired with its typed transcription. If the reference and transcription are organized as numbered lines (1, 2, 3, ...), each handwritten line N corresponds exactly to typed line N — use this alignment to map specific letterforms and word shapes to their ground-truth characters. Use the reference to learn how this specific person forms letters, digits, and ligatures (e.g. how they distinguish 1/7, 0/O, u/v, n/h, r/v, closed-loop e vs. open ε). Apply that knowledge when reading the target. The reference itself is NOT content to be transcribed.
+
+Then the user provides the TARGET image to analyze.
+
+Respond in EXACTLY this format, with no preamble and no text outside these two sections:
+
+### Description
+A 2-4 sentence description of the target image: subject, layout, medium (e.g. "handwritten note in blue ink on lined paper"), and any notable visual details. If the target is purely text, describe the document type and layout.
+
+### Extracted Text
+The full text from the target image, transcribed verbatim. Preserve line breaks and visual structure (lists, indentation, columns) as faithfully as plain text allows. Do not correct spelling, grammar, or punctuation. If a word or character is unclear, transcribe your best guess immediately followed by [?] (e.g. "meeting[?]"). If a section is completely illegible, write [illegible]. If the target contains no text at all, write: (no text found).
+
+Never invent text that is not visible. Never add commentary, summaries, or notes outside the two sections above.`;
+
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+function setStatus(state, text) {
+  els.status.className = 'status ' + (state || '');
+  els.statusText.textContent = text;
+}
+
+function syncEndpointLabel() {
+  els.endpointLabel.textContent = els.endpoint.value + '  ·  ' + els.model.value;
+}
+
+async function checkEndpoint() {
+  setStatus('', 'checking…');
+  try {
+    const r = await fetch(els.endpoint.value.replace(/\/$/, '') + '/models');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const ids = (data.data || []).map(m => m.id);
+    const present = ids.includes(els.model.value);
+    setStatus(present ? 'ok' : 'err',
+      present ? 'connected · model loaded' : 'connected · model NOT in list (' + ids.length + ' available)');
+  } catch (e) {
+    setStatus('err', 'cannot reach LM Studio (' + e.message + ')');
+  }
+}
+
+function loadFile(f) {
+  if (!f || !f.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    currentDataUrl = reader.result;
+    els.previewImg.src = currentDataUrl;
+    els.previewName.textContent = f.name || 'pasted image';
+    els.previewSize.textContent = fmtBytes(f.size) + ' · ' + f.type;
+    els.preview.classList.add('show');
+    els.analyze.disabled = false;
+    els.clear.disabled = false;
+  };
+  reader.readAsDataURL(f);
+}
+
+function setReferenceImage(dataUrl) {
+  referenceDataUrl = dataUrl || null;
+  if (referenceDataUrl) {
+    els.refThumb.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = referenceDataUrl;
+    els.refThumb.appendChild(img);
+  } else {
+    els.refThumb.innerHTML = '<span id="refPlaceholder">click to add<br>reference image</span>';
+    els.refPlaceholder = document.getElementById('refPlaceholder');
+  }
+  updateRefStatus();
+}
+
+function loadRefFile(f) {
+  if (!f || !f.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    setReferenceImage(reader.result);
+    try { localStorage.setItem(STORE.refImage, reader.result); }
+    catch (e) {
+      els.refStatus.textContent = '— image too large to save (still active this session)';
+      els.refStatus.classList.remove('on');
+    }
+  };
+  reader.readAsDataURL(f);
+}
+
+function updateRefStatus() {
+  const hasImg = !!referenceDataUrl;
+  const hasText = !!els.refText.value.trim();
+  if (hasImg && hasText) {
+    els.refStatus.textContent = '— active (image + transcription)';
+    els.refStatus.classList.add('on');
+  } else if (hasImg) {
+    els.refStatus.textContent = '— image only (add transcription for best results)';
+    els.refStatus.classList.remove('on');
+  } else if (hasText) {
+    els.refStatus.textContent = '— transcription only (add image)';
+    els.refStatus.classList.remove('on');
+  } else {
+    els.refStatus.textContent = '— none';
+    els.refStatus.classList.remove('on');
+  }
+}
+
+function clearAll() {
+  currentDataUrl = null;
+  els.preview.classList.remove('show');
+  els.analyze.disabled = true;
+  els.clear.disabled = true;
+  els.file.value = '';
+  els.description.innerHTML = '<span class="placeholder">Upload an image and click Analyze.</span>';
+  els.text.innerHTML = '<span class="placeholder">—</span>';
+  els.description.classList.remove('error');
+  els.text.classList.remove('error');
+}
+
+function renderSplit(full) {
+  // Split on the two headers; fall back to dumping everything in description.
+  const descMatch = full.match(/###\s*Description\s*\n([\s\S]*?)(?=\n###\s*Extracted Text|$)/i);
+  const textMatch = full.match(/###\s*Extracted Text\s*\n([\s\S]*)$/i);
+  if (descMatch || textMatch) {
+    els.description.textContent = (descMatch ? descMatch[1].trim() : '') || '—';
+    els.text.textContent = (textMatch ? textMatch[1].trim() : '') || '—';
+  } else {
+    els.description.textContent = full.trim();
+    els.text.textContent = '—';
+  }
+}
+
+async function analyze() {
+  if (!currentDataUrl) return;
+  els.analyze.disabled = true;
+  els.description.classList.remove('error');
+  els.text.classList.remove('error');
+  els.description.innerHTML = '<span class="spinner"></span><span class="placeholder">analyzing…</span>';
+  els.text.innerHTML = '<span class="placeholder">—</span>';
+
+  const messages = [];
+  const sys = els.sysPrompt.value.trim();
+  if (sys) messages.push({ role: 'system', content: sys });
+
+  const userContent = [];
+  if (referenceDataUrl) {
+    userContent.push({ type: 'text', text: 'HANDWRITING REFERENCE — a sample of my handwriting (do not transcribe this; use it only to learn my letterforms):' });
+    userContent.push({ type: 'image_url', image_url: { url: referenceDataUrl } });
+    const refTxt = els.refText.value.trim();
+    if (refTxt) {
+      userContent.push({ type: 'text', text: 'Typed transcription of the reference above:\n' + refTxt });
+    }
+    userContent.push({ type: 'text', text: '— end of reference —' });
+  }
+  userContent.push({ type: 'text', text: 'TARGET — analyze this image and respond in the required two-section format:' });
+  userContent.push({ type: 'image_url', image_url: { url: currentDataUrl } });
+  messages.push({ role: 'user', content: userContent });
+
+  const body = { model: els.model.value, stream: true, messages };
+
+  let acc = '';
+  try {
+    const res = await fetch(els.endpoint.value.replace(/\/$/, '') + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error('HTTP ' + res.status + ' — ' + err.slice(0, 300));
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        const s = line.trim();
+        if (!s.startsWith('data:')) continue;
+        const payload = s.slice(5).trim();
+        if (payload === '[DONE]') continue;
+        try {
+          const json = JSON.parse(payload);
+          const delta = json.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            acc += delta;
+            renderSplit(acc);
+          }
+        } catch { /* ignore parse hiccups on partial chunks */ }
+      }
+    }
+    if (!acc) {
+      els.description.textContent = '(empty response)';
+      els.description.classList.add('error');
+    }
+  } catch (e) {
+    els.description.classList.add('error');
+    els.description.textContent = 'Error: ' + e.message;
+    els.text.innerHTML = '<span class="placeholder">—</span>';
+  } finally {
+    els.analyze.disabled = false;
+  }
+}
+
+// File picker
+els.drop.addEventListener('click', () => els.file.click());
+els.drop.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); els.file.click(); }
+});
+els.file.addEventListener('change', (e) => loadFile(e.target.files[0]));
+
+// Drag and drop
+els.drop.addEventListener('dragover', (e) => { e.preventDefault(); els.drop.classList.add('over'); });
+els.drop.addEventListener('dragleave', () => els.drop.classList.remove('over'));
+els.drop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  els.drop.classList.remove('over');
+  loadFile(e.dataTransfer.files[0]);
+});
+
+// Paste
+window.addEventListener('paste', (e) => {
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (item) loadFile(item.getAsFile());
+});
+
+// Buttons
+els.analyze.addEventListener('click', analyze);
+els.clear.addEventListener('click', clearAll);
+
+// Reference image
+els.refThumb.addEventListener('click', () => els.refFile.click());
+els.refFile.addEventListener('change', (e) => loadRefFile(e.target.files[0]));
+els.refThumb.addEventListener('dragover', (e) => { e.preventDefault(); els.refThumb.style.borderColor = 'var(--accent)'; });
+els.refThumb.addEventListener('dragleave', () => { els.refThumb.style.borderColor = ''; });
+els.refThumb.addEventListener('drop', (e) => {
+  e.preventDefault();
+  els.refThumb.style.borderColor = '';
+  loadRefFile(e.dataTransfer.files[0]);
+});
+els.refClear.addEventListener('click', () => {
+  setReferenceImage(null);
+  els.refText.value = '';
+  localStorage.removeItem(STORE.refImage);
+  localStorage.removeItem(STORE.refText);
+  updateRefStatus();
+});
+
+function loadRefTxt(f) {
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    els.refText.value = reader.result;
+    localStorage.setItem(STORE.refText, reader.result);
+    updateRefStatus();
+  };
+  reader.readAsText(f);
+}
+els.refLoadTxt.addEventListener('click', () => els.refTxtFile.click());
+els.refTxtFile.addEventListener('change', (e) => loadRefTxt(e.target.files[0]));
+els.refText.addEventListener('dragover', (e) => { e.preventDefault(); });
+els.refText.addEventListener('drop', (e) => {
+  const f = e.dataTransfer.files[0];
+  if (f && (f.type === 'text/plain' || f.name.endsWith('.txt'))) {
+    e.preventDefault();
+    loadRefTxt(f);
+  }
+});
+els.refText.addEventListener('input', () => {
+  localStorage.setItem(STORE.refText, els.refText.value);
+  updateRefStatus();
+});
+
+// Settings persistence
+function persist(key, el) {
+  el.addEventListener('change', () => localStorage.setItem(key, el.value));
+  el.addEventListener('input', () => localStorage.setItem(key, el.value));
+}
+els.endpoint.addEventListener('change', () => { syncEndpointLabel(); checkEndpoint(); });
+els.model.addEventListener('change', () => { syncEndpointLabel(); checkEndpoint(); });
+persist(STORE.endpoint, els.endpoint);
+persist(STORE.model, els.model);
+persist(STORE.sysPrompt, els.sysPrompt);
+
+els.sysReset.addEventListener('click', () => {
+  els.sysPrompt.value = DEFAULT_SYS_PROMPT;
+  localStorage.setItem(STORE.sysPrompt, DEFAULT_SYS_PROMPT);
+});
+
+// Restore from localStorage
+const savedEndpoint = localStorage.getItem(STORE.endpoint);
+if (savedEndpoint) els.endpoint.value = savedEndpoint;
+const savedModel = localStorage.getItem(STORE.model);
+if (savedModel) els.model.value = savedModel;
+els.sysPrompt.value = localStorage.getItem(STORE.sysPrompt) || DEFAULT_SYS_PROMPT;
+const savedRefText = localStorage.getItem(STORE.refText);
+if (savedRefText) els.refText.value = savedRefText;
+const savedRefImg = localStorage.getItem(STORE.refImage);
+if (savedRefImg) setReferenceImage(savedRefImg);
+updateRefStatus();
+
+syncEndpointLabel();
+checkEndpoint();
+</script>
+</body>
+</html>
