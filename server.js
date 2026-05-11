@@ -81,6 +81,22 @@ function asAnthropicContent(content) {
   });
 }
 
+function normalizeAnthropicModel(model) {
+  const key = String(model || '').trim().toLowerCase();
+  const aliases = {
+    'sonnet 4.5': 'claude-sonnet-4-5-20250929',
+    'claude sonnet 4.5': 'claude-sonnet-4-5-20250929',
+    'claude-sonnet-4.5': 'claude-sonnet-4-5-20250929',
+    'sonnet 4': 'claude-sonnet-4-20250514',
+    'claude sonnet 4': 'claude-sonnet-4-20250514',
+    'sonnet 3.7': 'claude-3-7-sonnet-20250219',
+    'claude sonnet 3.7': 'claude-3-7-sonnet-20250219',
+    'sonnet 3.5': 'claude-3-5-sonnet-20241022',
+    'claude sonnet 3.5': 'claude-3-5-sonnet-20241022',
+  };
+  return aliases[key] || model;
+}
+
 function toAnthropicBody(openAiBody) {
   const system = [];
   const messages = [];
@@ -98,7 +114,7 @@ function toAnthropicBody(openAiBody) {
   }
 
   return {
-    model: openAiBody.model,
+    model: normalizeAnthropicModel(openAiBody.model),
     max_tokens: openAiBody.max_tokens || 4096,
     stream: true,
     ...(system.length ? { system: system.join('\n\n') } : {}),

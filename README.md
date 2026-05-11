@@ -102,10 +102,12 @@ In OCRA Settings:
 3. Set a vision-capable model, for example:
 
    ```text
-   claude-3-5-sonnet-latest
+   claude-sonnet-4-5-20250929
    ```
 
 Requests are sent through the local proxy at `/api/anthropic/chat/completions`. The proxy converts OCRA's OpenAI-style image messages into Anthropic's Messages API format.
+
+Use Anthropic API model IDs, not display names. For example, use `claude-sonnet-4-5-20250929` instead of `Sonnet 4.5`. The proxy also accepts a few common friendly aliases such as `Sonnet 4.5` and maps them to API IDs.
 
 You can also create a local `.env` file instead of exporting keys:
 
